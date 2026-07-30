@@ -1,0 +1,191 @@
+{
+  "name": "License Confirm-or-Release (ask the user)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 1 * *"
+            }
+          ]
+        }
+      },
+      "name": "Monthly, 1st at 10 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Scan the stack for idle seats - swap for Okta System Log last-auth per app + vendor admin APIs\nconst THRESHOLD = 45;\nconst raw = [\n  { user: 'Bea Ross', email: 'bea.ross@example.com', app: 'Figma', seatCostMonthly: 15, lastLoginDaysAgo: 92 },\n  { user: 'Eli Moss', email: 'eli.moss@example.com', app: 'Zoom Pro', seatCostMonthly: 16, lastLoginDaysAgo: 130 },\n  { user: 'Gio Ito', email: 'gio.ito@example.com', app: 'Miro', seatCostMonthly: 10, lastLoginDaysAgo: 210 }\n];\nreturn raw.filter(r => r.lastLoginDaysAgo > THRESHOLD).map(r => ({ json: r }));"
+      },
+      "name": "Scan Stack For Idle Seats (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ 'Quick check: still using ' + $json.app + '?' }}",
+        "message": "={{ 'Hi ' + $json.user.split(' ')[0] + ',\\n\\nOur records show you have not signed in to ' + $json.app + ' in ' + $json.lastLoginDaysAgo + ' days. Licenses cost real money, so we recycle idle seats.\\n\\nStill need it? One click below. If we release it and you need it again later, you get it back same-day, no penalty box.\\n\\nThanks!\\nIT Ops' }}",
+        "responseType": "approval",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "approveLabel": "I still use it",
+            "disapproveLabel": "Release my seat"
+          }
+        },
+        "options": {
+          "limitWaitTime": true,
+          "resumeUnit": "days",
+          "resumeAmount": 7
+        }
+      },
+      "name": "Ask The User (send and wait)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate responses. No reply after 7 days = flagged for the human policy call, never auto-revoked silently.\nconst keep = [], release = [], silent = [];\nfor (const item of $input.all()) {\n  const j = item.json;\n  const approved = j.data && typeof j.data.approved === 'boolean' ? j.data.approved : (typeof j.approved === 'boolean' ? j.approved : null);\n  if (approved === true) keep.push(j);\n  else if (approved === false) release.push(j);\n  else silent.push(j);\n}\nconst money = release.reduce((s, r) => s + r.seatCostMonthly, 0);\nlet body = 'License confirm-or-release results:\\n\\n';\nbody += '== Release now (' + release.length + ' seats, $' + money + '/mo back) ==\\n' + release.map(r => '  ' + r.user + ' - ' + r.app).join('\\n') + '\\n\\n';\nbody += '== Confirmed keep (' + keep.length + ') ==\\n' + keep.map(r => '  ' + r.user + ' - ' + r.app).join('\\n') + '\\n\\n';\nbody += '== No reply in 7 days (' + silent.length + ') ==\\n' + silent.map(r => '  ' + r.user + ' - ' + r.app + ' (manager ping next, then release per policy)').join('\\n');\nbody += '\\n\\nPrinciple: the user gets asked before the seat gets taken, and reclaim is reversible same-day.';\nreturn [{ json: { subject: 'Confirm-or-release: ' + release.length + ' seats freed, ' + silent.length + ' pending', body } }];"
+      },
+      "name": "Tally Keep vs Release",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        0
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-ops@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Actions Report To IT",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        700,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { eventType: 'license-confirm-or-release-run', actor: 'automation', target: 'SaaS stack', source: 'license-confirm-or-release', details: $input.first().json.subject } }];"
+      },
+      "name": "Shape Audit Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        180
+      ],
+      "id": "node-0005"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE-WITH-YOUR-LEDGER-WORKFLOW-ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Log To Audit Ledger",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        920,
+        180
+      ],
+      "id": "node-0006"
+    }
+  ],
+  "connections": {
+    "Monthly, 1st at 10 AM": {
+      "main": [
+        [
+          {
+            "node": "Scan Stack For Idle Seats (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan Stack For Idle Seats (mock)": {
+      "main": [
+        [
+          {
+            "node": "Ask The User (send and wait)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask The User (send and wait)": {
+      "main": [
+        [
+          {
+            "node": "Tally Keep vs Release",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tally Keep vs Release": {
+      "main": [
+        [
+          {
+            "node": "Actions Report To IT",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Shape Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Audit Event": {
+      "main": [
+        [
+          {
+            "node": "Log To Audit Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

@@ -1,0 +1,214 @@
+{
+  "name": "Annual Entitlement Recertification",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 15 1 *"
+            }
+          ]
+        }
+      },
+      "name": "Yearly, Jan 15 at 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pull entitlements + usage - swap for Okta groups/app assignments + per-app last-activity data\nreturn [{ json: {\n  managers: [\n    { manager: 'Alex Rivera', email: 'alex.rivera@example.com', reports: [\n      { user: 'Bea Ross', apps: [ { app: 'Salesforce', permission: 'standard user', lastUsedDaysAgo: 4 }, { app: 'Figma', permission: 'editor', lastUsedDaysAgo: 92 }, { app: 'AWS Console', permission: 'read-only', lastUsedDaysAgo: 301 } ] },\n      { user: 'Eli Moss', apps: [ { app: 'Salesforce', permission: 'admin', lastUsedDaysAgo: 11 }, { app: 'Zoom Pro', permission: 'licensed', lastUsedDaysAgo: 130 } ] } ] }\n  ],\n  roleBundles: [\n    { role: 'Sales (birthright bundle)', apps: [ { app: 'Salesforce', pctActive90d: 96 }, { app: 'Figma', pctActive90d: 14 }, { app: 'Miro', pctActive90d: 9 } ] },\n    { role: 'Support (birthright bundle)', apps: [ { app: 'Zendesk', pctActive90d: 99 }, { app: 'Looker', pctActive90d: 22 } ] }\n  ]\n} }];"
+      },
+      "name": "Pull Entitlements + Usage (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One attestation packet per manager: every report, every app, every permission level\nconst { managers } = $input.first().json;\nreturn managers.map(m => {\n  let rows = '';\n  for (const r of m.reports) {\n    rows += '\\n' + r.user + ':\\n';\n    for (const a of r.apps) {\n      const stale = a.lastUsedDaysAgo > 90 ? '  <-- unused ' + a.lastUsedDaysAgo + ' days, confirm or remove' : '';\n      const priv = /admin/i.test(a.permission) ? '  [PRIVILEGED - justify]' : '';\n      rows += '  ' + a.app + ' | ' + a.permission + ' | last used ' + a.lastUsedDaysAgo + 'd ago' + stale + priv + '\\n';\n    }\n  }\n  return { json: {\n    email: m.email,\n    subject: '[Annual recert] Your team: ' + m.reports.length + ' report(s), reply keep/remove/downgrade per line',\n    body: 'Annual access recertification for your direct reports. You know what they need better than IT does.\\n' + rows + '\\nReply keep, remove, or downgrade per line within 14 days. Privileged permissions need one sentence of justification. No reply = we schedule removal of the flagged lines and call you first.\\n\\nWhy yearly: access accumulates, jobs drift, and the recert is how entitlements catch up with reality.'\n  } };\n});"
+      },
+      "name": "Build Manager Attestations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        -120
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Manager Packet",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        460,
+        -120
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Role-bundle trim proposals: if few members of a role actually use an app, it should not be birthright\nconst { roleBundles } = $input.first().json;\nconst TRIM_BELOW = 20;\nlet body = 'Birthright bundle review (data-driven least privilege):\\n';\nlet trims = 0;\nfor (const rb of roleBundles) {\n  const trim = rb.apps.filter(a => a.pctActive90d < TRIM_BELOW);\n  if (!trim.length) continue;\n  trims += trim.length;\n  body += '\\n' + rb.role + ':\\n' + trim.map(a => '  ' + a.app + ' - only ' + a.pctActive90d + '% of members active in 90d. Propose: remove from bundle, keep as request-able with fast approval. New joiners stop receiving it; existing users keep it until their next recert.').join('\\n') + '\\n';\n}\nif (!trims) body += '\\nNo trims proposed this cycle.';\nbody += '\\nPrinciple: birthright is for what a role actually uses, not what it might use. Everything else is a request away.';\nreturn [{ json: { subject: 'Role bundle trims: ' + trims + ' proposal(s)', body } }];"
+      },
+      "name": "Build Role-Trim Proposals",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        120
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-ops@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Trim Proposals To Identity Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        460,
+        120
+      ],
+      "id": "node-0005"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { eventType: 'annual-recertification-dispatched', actor: 'automation', target: 'all manager packets + role-trim proposals', source: 'annual-entitlement-recertification', details: 'Yearly recert cycle kicked off' } }];"
+      },
+      "name": "Shape Audit Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        0
+      ],
+      "id": "node-0006"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE-WITH-YOUR-LEDGER-WORKFLOW-ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Log To Audit Ledger",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        920,
+        0
+      ],
+      "id": "node-0007"
+    }
+  ],
+  "connections": {
+    "Yearly, Jan 15 at 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Pull Entitlements + Usage (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull Entitlements + Usage (mock)": {
+      "main": [
+        [
+          {
+            "node": "Build Manager Attestations",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build Role-Trim Proposals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Manager Attestations": {
+      "main": [
+        [
+          {
+            "node": "Send Manager Packet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Manager Packet": {
+      "main": [
+        [
+          {
+            "node": "Shape Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Role-Trim Proposals": {
+      "main": [
+        [
+          {
+            "node": "Send Trim Proposals To Identity Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Trim Proposals To Identity Owner": {
+      "main": [
+        [
+          {
+            "node": "Shape Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Audit Event": {
+      "main": [
+        [
+          {
+            "node": "Log To Audit Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
