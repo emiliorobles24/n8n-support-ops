@@ -1,0 +1,157 @@
+{
+  "name": "Quarterly Access Review Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 1 1,4,7,10 *"
+            }
+          ]
+        }
+      },
+      "name": "Quarterly, 1st at 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock review packets - swap for Okta groups API (privileged roles + exception grants FIRST, that is where the risk lives)\nreturn [\n  { json: { system: 'AWS Console (admin)', owner: 'Head of Infrastructure', ownerEmail: 'owner-1@example.com', members: [\n    { user: 'dana@example.com', role: 'admin', grantedVia: 'exception', expiry: '2026-08-15' },\n    { user: 'sam@example.com', role: 'admin', grantedVia: 'exception', expiry: 'none' } ] } },\n  { json: { system: 'Workday (HR reports)', owner: 'VP People', ownerEmail: 'owner-2@example.com', members: [\n    { user: 'marco@example.com', role: 'report-viewer', grantedVia: 'exception', expiry: 'none' },\n    { user: 'lena@example.com', role: 'report-viewer', grantedVia: 'birthright', expiry: 'n/a' } ] } }\n];"
+      },
+      "name": "Build Review Packets (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One packet per system owner. Data owners review; IT orchestrates. Expiry-less exceptions get called out.\nreturn $input.all().map(({ json: p }) => {\n  const rows = p.members.map(m => '  ' + m.user + ' | ' + m.role + ' | via ' + m.grantedVia + ' | expiry: ' + m.expiry + (m.grantedVia === 'exception' && m.expiry === 'none' ? '  <-- NO EXPIRY, decide or time-box it' : '')).join('\\n');\n  return { json: {\n    system: p.system, ownerEmail: p.ownerEmail,\n    subject: '[Access review] ' + p.system + ' - ' + p.members.length + ' grant(s), reply keep/revoke per line',\n    body: 'Quarterly access review for ' + p.system + ' (you are the data owner):\\n\\n' + rows + '\\n\\nReply to this email with keep or revoke per line within 7 days. No reply = we schedule the revoke and call you first.\\nWhy this exists: exceptions without expiry are how least privilege quietly dies.'\n  } };\n});"
+      },
+      "name": "Format Owner Packets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.ownerEmail }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Review Packet",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shape the audit event for the shared ledger sub-workflow\nreturn $input.all().map(({ json: p }) => ({ json: {\n  eventType: 'access-review-dispatched', actor: 'automation', target: p.system,\n  source: 'access-review-orchestrator', details: 'Review packet sent to data owner ' + p.ownerEmail\n} }));"
+      },
+      "name": "Shape Audit Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE-WITH-YOUR-LEDGER-WORKFLOW-ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Log To Audit Ledger",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        0
+      ],
+      "id": "node-0005"
+    }
+  ],
+  "connections": {
+    "Quarterly, 1st at 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Build Review Packets (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Review Packets (mock)": {
+      "main": [
+        [
+          {
+            "node": "Format Owner Packets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Owner Packets": {
+      "main": [
+        [
+          {
+            "node": "Send Review Packet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Review Packet": {
+      "main": [
+        [
+          {
+            "node": "Shape Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Audit Event": {
+      "main": [
+        [
+          {
+            "node": "Log To Audit Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

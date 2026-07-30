@@ -18,6 +18,16 @@ These are working designs with mock data at the source nodes. Every mock node is
 | [Audit Trail Ledger](workflows/audit-trail-ledger.json) | Evidence | A reusable sub-workflow any other workflow calls to log who/what/when/source to one ledger, plus a weekly evidence digest. Audit season becomes a filter on one sheet. |
 | [JML Lifecycle (Okta + Jamf)](workflows/jml-lifecycle-okta-jamf.json) | IT lifecycle | HR events drive identity and device actions: joiners get an Okta account, birthright groups, and their laptop assigned in Jamf; leavers get sessions revoked, account deactivated, and the laptop locked by MDM command with an IT-only PIN. Mover branch left as an exercise. |
 
+## The IT operations pack
+
+Three more workflows from the corporate IT side of the house, same honest mock-data framing:
+
+| Workflow | IT ops job | What it does |
+|---|---|---|
+| [Cert + Credential Expiry Sentinel](workflows/cert-credential-expiry-sentinel.json) | Outage prevention | Daily sweep of a credential registry (SAML certs, API tokens, TLS, integration secrets) with 30/14/7-day alert tiers. Born from a real production outage caused by an expired credential; the failure class never recurred once pre-expiry alerting existed. |
+| [SaaS License Reclaim Report](workflows/saas-license-reclaim.json) | Cost control | Monthly cross of seat assignments against last-login data; idle seats become a dollars-per-year reclaim report your CFO will actually read, and ammunition for renewal negotiations. |
+| [Quarterly Access Review Orchestrator](workflows/quarterly-access-review.json) | Least privilege | Sends each system's data owner their review packet (privileged roles and exception grants first), calls out exceptions with no expiry, and logs every dispatch to the shared Audit Trail Ledger sub-workflow. Workflows composing workflows. |
+
 ## Importing
 
 Open a new workflow in n8n, copy a JSON file's contents, and paste directly onto the canvas (or use Import from File). Then connect credentials: Gmail for alerts, OpenAI (or any chat model) for the three AI workflows, an Okta API token and Jamf client for the JML workflow, Google Sheets for the ledger, and a Slack incoming webhook for the leaderboard.

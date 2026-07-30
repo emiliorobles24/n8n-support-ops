@@ -1,0 +1,104 @@
+{
+  "name": "SaaS License Reclaim Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 1 * *"
+            }
+          ]
+        }
+      },
+      "name": "Monthly, 1st at 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock seats + last-login - swap for Okta System Log (last SSO auth per app) + each vendor's admin API\nreturn [{ json: { apps: [\n  { app: 'Figma', seatCostMonthly: 15, seats: [ { user: 'a.kim', lastLoginDaysAgo: 3 }, { user: 'b.ross', lastLoginDaysAgo: 92 }, { user: 'c.diaz', lastLoginDaysAgo: 61 }, { user: 'd.wu', lastLoginDaysAgo: 8 } ] },\n  { app: 'Zoom Pro', seatCostMonthly: 16, seats: [ { user: 'a.kim', lastLoginDaysAgo: 1 }, { user: 'e.moss', lastLoginDaysAgo: 130 } ] },\n  { app: 'Miro', seatCostMonthly: 10, seats: [ { user: 'b.ross', lastLoginDaysAgo: 47 }, { user: 'f.chan', lastLoginDaysAgo: 12 }, { user: 'g.ito', lastLoginDaysAgo: 210 } ] }\n] } }];"
+      },
+      "name": "Seats + Last Login (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Inactive threshold 45 days: long enough to skip vacations, short enough to matter\nconst { apps } = $input.first().json;\nconst THRESHOLD = 45;\nlet monthly = 0; const sections = [];\nfor (const a of apps) {\n  const idle = a.seats.filter(s => s.lastLoginDaysAgo > THRESHOLD);\n  if (!idle.length) continue;\n  const save = idle.length * a.seatCostMonthly;\n  monthly += save;\n  sections.push(a.app + ' (' + idle.length + ' of ' + a.seats.length + ' seats idle, $' + save + '/mo):\\n' + idle.map(s => '  ' + s.user + ' - last login ' + s.lastLoginDaysAgo + ' days ago').join('\\n'));\n}\nif (!sections.length) return [];\nconst body = 'License reclaim sweep (idle > ' + THRESHOLD + ' days):\\n\\n' + sections.join('\\n\\n') + '\\n\\nReclaimable: $' + monthly + '/month ($' + monthly * 12 + '/year)\\n\\nProcess: confirm with the manager, downgrade or reassign the seat, and note it before the renewal call. Walking into a vendor negotiation knowing your true utilization is the whole game.';\nreturn [{ json: { subject: 'License reclaim: $' + monthly * 12 + '/year on the table', body } }];"
+      },
+      "name": "Find Reclaimable Seats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Reclaim Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "node-0003"
+    }
+  ],
+  "connections": {
+    "Monthly, 1st at 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Seats + Last Login (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seats + Last Login (mock)": {
+      "main": [
+        [
+          {
+            "node": "Find Reclaimable Seats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Reclaimable Seats": {
+      "main": [
+        [
+          {
+            "node": "Send Reclaim Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
