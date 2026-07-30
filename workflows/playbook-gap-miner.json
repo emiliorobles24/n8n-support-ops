@@ -1,0 +1,161 @@
+{
+  "name": "Playbook Gap Miner",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1"
+            }
+          ]
+        }
+      },
+      "name": "Mondays 7 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock 30-day resolved-ticket categories vs playbook index - swap for helpdesk API + KB search\nconst categories = [\n  { category: 'webhook retries failing', count30d: 14, hasPlaybook: false, sampleResolution: 'Usually stale credentials on the destination or a payload over the size limit; fixed by re-auth and batching.' },\n  { category: 'SSO/SAML setup', count30d: 11, hasPlaybook: true },\n  { category: 'self-host upgrade breaks community nodes', count30d: 8, hasPlaybook: false, sampleResolution: 'Pin node versions before upgrade, re-install community nodes after, verify with a canary workflow.' },\n  { category: 'billing proration confusion', count30d: 3, hasPlaybook: false }\n];\n// Gap = recurring (5+) and undocumented. Below 5, a playbook costs more than it saves.\nreturn categories.filter(c => c.count30d >= 5 && !c.hasPlaybook).map(c => ({ json: c }));"
+      },
+      "name": "Find Undocumented Recurring Categories",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json) }}",
+        "options": {
+          "systemMessage": "You draft support playbook stubs for a support engineering team. Input: a recurring ticket category with count and a sample resolution note. Return plain text with exactly these sections: SYMPTOMS (3 bullets of what the customer reports), DIAGNOSTICS (numbered steps with the specific things to check), RESOLUTION (numbered steps), ESCALATE WHEN (2 bullets). Be specific to the category; write nothing you cannot infer from the input; mark uncertain steps with [verify]. Under 220 words."
+        }
+      },
+      "name": "Draft Playbook Stub",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        220
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (!items.length) return [];\nlet body = 'Playbook gaps this week (recurring 5+ times, no doc). Stubs below are DRAFTS: review, correct, publish.\\n';\nitems.forEach((item, i) => {\n  const cat = $('Find Undocumented Recurring Categories').all()[i].json;\n  body += '\\n======== ' + cat.category + ' (' + cat.count30d + ' tickets/30d) ========\\n' + (item.json.output || '') + '\\n';\n});\nbody += '\\nRule: every resolved escalation becomes documentation. This miner just finds the ones that slipped through.';\nreturn [{ json: { subject: 'Playbook gaps: ' + items.length + ' draft(s) ready for review', body } }];"
+      },
+      "name": "Assemble Review Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-lead@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Draft Playbooks",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        0
+      ],
+      "id": "node-0005"
+    }
+  ],
+  "connections": {
+    "Mondays 7 AM": {
+      "main": [
+        [
+          {
+            "node": "Find Undocumented Recurring Categories",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Undocumented Recurring Categories": {
+      "main": [
+        [
+          {
+            "node": "Draft Playbook Stub",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Playbook Stub": {
+      "main": [
+        [
+          {
+            "node": "Assemble Review Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Review Queue": {
+      "main": [
+        [
+          {
+            "node": "Send Draft Playbooks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Draft Playbook Stub",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

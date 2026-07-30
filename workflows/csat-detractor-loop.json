@@ -1,0 +1,161 @@
+{
+  "name": "CSAT Detractor Loop",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 1-5"
+            }
+          ]
+        }
+      },
+      "name": "Weekdays 6 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock low-CSAT responses (1-2 of 5) from today - swap for helpdesk CSAT export\nreturn [{ json: { responses: [\n  { ticketId: 'T-5001', customer: 'Globex', score: 1, comment: 'Took three days and I had to explain my problem twice to two different people.' },\n  { ticketId: 'T-5002', customer: 'Initech', score: 2, comment: 'The answer worked but felt copy-pasted, my actual question about self-hosting was ignored.' }\n] } }];"
+      },
+      "name": "Pull Low Scores (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.responses) }}",
+        "options": {
+          "systemMessage": "You help a support lead close the loop with unhappy customers. For each low-CSAT response return ONLY valid JSON {\"items\":[{\"ticketId\",\"customer\",\"theme\": 2-4 words (e.g. slow handoffs, canned reply, ignored question),\"followUpDraft\": 3-4 sentences from the team lead, first person}]}. Follow-up rules: name the specific failure plainly, no excuses and no corporate apology-speak, say the concrete thing that changes because of their feedback, and end with a direct offer to reopen the conversation. These are DRAFTS a human approves."
+        }
+      },
+      "name": "Theme + Draft Follow-Ups",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        220
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output ?? '';\nconst match = String(raw).match(/\\{[\\s\\S]*\\}/);\nlet items = [];\ntry { items = JSON.parse(match ? match[0] : raw).items || []; } catch (e) { items = []; }\nif (!items.length) return [];\nconst themes = {};\nfor (const i of items) themes[i.theme] = (themes[i.theme] || 0) + 1;\nlet body = 'Detractor follow-ups for your approval (NEVER auto-sent, a human owns every apology):\\n';\nfor (const i of items) body += '\\n== ' + i.customer + ' (' + i.ticketId + ') | theme: ' + i.theme + ' ==\\n' + i.followUpDraft + '\\n';\nbody += '\\nTheme tally: ' + Object.entries(themes).map(([t, c]) => t + ' x' + c).join(', ');\nbody += '\\n\\nWhy this exists: a detractor who gets a real follow-up becomes your most honest advisor; one who gets silence becomes a churn risk with receipts.';\nreturn [{ json: { subject: 'Detractor follow-ups: ' + items.length + ' draft(s) awaiting your approval', body } }];"
+      },
+      "name": "Assemble Approval Queue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-lead@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send For Approval",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        0
+      ],
+      "id": "node-0005"
+    }
+  ],
+  "connections": {
+    "Weekdays 6 PM": {
+      "main": [
+        [
+          {
+            "node": "Pull Low Scores (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull Low Scores (mock)": {
+      "main": [
+        [
+          {
+            "node": "Theme + Draft Follow-Ups",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Theme + Draft Follow-Ups": {
+      "main": [
+        [
+          {
+            "node": "Assemble Approval Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Assemble Approval Queue": {
+      "main": [
+        [
+          {
+            "node": "Send For Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Theme + Draft Follow-Ups",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

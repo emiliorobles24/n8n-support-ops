@@ -1,0 +1,104 @@
+{
+  "name": "Linear Cycle Hygiene (escalations)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 3"
+            }
+          ]
+        }
+      },
+      "name": "Wednesdays 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock Linear escalation issues - swap for the Linear GraphQL API filtered to support-escalation label\nreturn [{ json: { issues: [\n  { issue: 'ENG-451', title: 'Workflow crashes on large payloads', state: 'In Progress', daysSinceUpdate: 6, linkedTickets: 4, arrImpact: 240000, cycle: 'current' },\n  { issue: 'ENG-460', title: 'Webhook dedupe race condition', state: 'Todo', daysSinceUpdate: 12, linkedTickets: 2, arrImpact: 96000, cycle: 'none' },\n  { issue: 'ENG-455', title: 'OAuth refresh fails for legacy apps', state: 'In Review', daysSinceUpdate: 1, linkedTickets: 7, arrImpact: 310000, cycle: 'current' },\n  { issue: 'ENG-441', title: 'Editor freeze with 200+ nodes', state: 'Done', daysSinceUpdate: 2, linkedTickets: 3, arrImpact: 54000, cycle: 'current' }\n] } }];"
+      },
+      "name": "Pull Escalations (mock Linear)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic hygiene rules: no AI needed to know 12 days of silence is too many\nconst { issues } = $input.first().json;\nconst stale = issues.filter(i => i.state !== 'Done' && i.daysSinceUpdate > 5).sort((a, b) => b.arrImpact - a.arrImpact);\nconst uncycled = issues.filter(i => i.state !== 'Done' && i.cycle === 'none');\nconst shipping = issues.filter(i => i.state === 'Done' || i.state === 'In Review');\nlet body = 'Escalation hygiene, midweek sweep:\\n\\n== Stale (5+ days without update, sorted by ARR at stake) ==\\n';\nbody += stale.length ? stale.map(i => i.issue + ' - ' + i.title + '\\n  ' + i.daysSinceUpdate + 'd silent | ' + i.linkedTickets + ' customer tickets | $' + (i.arrImpact/1000).toFixed(0) + 'K ARR\\n  Action: comment with customer impact + ask for an ETA we can give customers').join('\\n') : 'None.';\nbody += '\\n\\n== Not in any cycle ==\\n';\nbody += uncycled.length ? uncycled.map(i => i.issue + ' - ' + i.title + ' ($' + (i.arrImpact/1000).toFixed(0) + 'K ARR waiting)\\n  Action: raise in the eng sync, escalations do not live in the backlog').join('\\n') : 'None.';\nbody += '\\n\\n== Shipping or shipped (tell the customers!) ==\\n';\nbody += shipping.length ? shipping.map(i => i.issue + ' - ' + i.title + ' (' + i.state + ', ' + i.linkedTickets + ' tickets to update)').join('\\n') : 'None.';\nbody += '\\n\\nRule: an escalation without a current status is a promise we are quietly breaking.';\nreturn [{ json: { subject: 'Escalation hygiene: ' + stale.length + ' stale, ' + uncycled.length + ' uncycled, ' + shipping.length + ' to announce', body } }];"
+      },
+      "name": "Hygiene Rules + Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-lead@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Hygiene Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        480,
+        0
+      ],
+      "id": "node-0003"
+    }
+  ],
+  "connections": {
+    "Wednesdays 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Pull Escalations (mock Linear)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull Escalations (mock Linear)": {
+      "main": [
+        [
+          {
+            "node": "Hygiene Rules + Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hygiene Rules + Report": {
+      "main": [
+        [
+          {
+            "node": "Send Hygiene Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

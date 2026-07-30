@@ -1,0 +1,128 @@
+{
+  "name": "Ramp Program Orchestrator (3-week onboarding)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "new-support-hire",
+        "options": {}
+      },
+      "name": "New Hire Intake (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// The 3-week ramp program I ran in production, encoded. In production, week 2 and 3 sends move to Wait nodes or dated sub-schedules.\nconst h = $input.first().json.body;\nconst plan = [\n  'WEEK 1 - SHADOW: pair on live tickets with mentor, read the top 10 playbooks, sit in on one escalation, no solo queue work. Goal: vocabulary and context.',\n  'WEEK 2 - SUPERVISED: own easy-queue tickets with mentor review before every send, QA sampling at 100%, daily 15-minute debrief. Goal: reps with a net.',\n  'WEEK 3 - SOLO WITH WATCH: full queue access, QA sampling at 50%, graduation review Friday. Goal: earn the badge with data.',\n  'GRADUATION CRITERIA (measured from the queue, not vibes): first-response median under 60m, zero QA fails in week 3, CSAT >= 4.0 on 5+ rated tickets, one playbook improved or written.'\n].join('\\n\\n');\nreturn [\n  { json: { to: h.email, subject: 'Welcome! Your 3-week ramp starts now', body: 'Hi ' + h.name.split(' ')[0] + ',\\n\\nWelcome to support engineering. Your mentor is ' + h.mentor + '. Here is the whole 3-week plan up front, so nothing is a surprise:\\n\\n' + plan + '\\n\\nAsk questions early and often; the only bad question in week 1 is the one you sat on.' } },\n  { json: { to: h.mentorEmail, subject: 'You are mentoring ' + h.name + ' for the next 3 weeks', body: 'Mentor packet for ' + h.name + ':\\n\\n' + plan + '\\n\\nYour job: review every send in week 2, be interruptible, and flag risks to the lead early. Mentoring counts in your workload plan; your queue target is reduced 30% for these 3 weeks.' } },\n  { json: { to: 'it-lead@example.com', subject: '[Lead] Ramp started: ' + h.name, body: 'Track: ' + h.name + ' (mentor ' + h.mentor + ', started ' + (h.startDate || 'today') + ').\\n\\n' + plan + '\\n\\nCalendar: week-2 QA at 100%, week-3 at 50%, graduation review Friday of week 3.' } }\n];"
+      },
+      "name": "Build Ramp Packets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Ramp Packet",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const h = $('New Hire Intake (webhook)').first().json.body;\nreturn [{ json: { eventType: 'ramp-program-started', actor: 'automation', target: h.name, source: 'ramp-orchestrator', details: 'Mentor ' + h.mentor + ', 3-week plan dispatched' } }];"
+      },
+      "name": "Shape Audit Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE-WITH-YOUR-LEDGER-WORKFLOW-ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Log To Audit Ledger",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        0
+      ],
+      "id": "node-0004"
+    }
+  ],
+  "connections": {
+    "New Hire Intake (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Build Ramp Packets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ramp Packets": {
+      "main": [
+        [
+          {
+            "node": "Send Ramp Packet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Ramp Packet": {
+      "main": [
+        [
+          {
+            "node": "Shape Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Audit Event": {
+      "main": [
+        [
+          {
+            "node": "Log To Audit Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

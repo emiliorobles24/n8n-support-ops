@@ -18,6 +18,19 @@ These are working designs with mock data at the source nodes. Every mock node is
 | [Audit Trail Ledger](workflows/audit-trail-ledger.json) | Evidence | A reusable sub-workflow any other workflow calls to log who/what/when/source to one ledger, plus a weekly evidence digest. Audit season becomes a filter on one sheet. |
 | [JML Lifecycle (Okta + Jamf)](workflows/jml-lifecycle-okta-jamf.json) | IT lifecycle | HR events drive identity and device actions: joiners get an Okta account, birthright groups, and their laptop assigned in Jamf; leavers get sessions revoked, account deactivated, and the laptop locked by MDM command with an IT-only PIN. Mover branch left as an exercise. |
 
+## The team lead pack
+
+The people-and-program half of running a support engineering team:
+
+| Workflow | Lead job | What it does |
+|---|---|---|
+| [Ramp Program Orchestrator](workflows/ramp-program-orchestrator.json) | Onboarding engineers | A new-hire event dispatches the full 3-week ramp: shadow week, supervised week with 100% QA sampling, solo week, and graduation criteria measured from queue data instead of vibes. Hire, mentor, and lead each get their packet; mentors get a 30% queue reduction on paper, because mentoring that is not resourced is theater. |
+| [Playbook Gap Miner](workflows/playbook-gap-miner.json) | Documentation | Weekly: finds ticket categories recurring 5+ times with no playbook, drafts the stub (symptoms, diagnostics, resolution, escalate-when), and queues it for human review. The every-escalation-becomes-documentation rule, enforced by a robot. |
+| [Ticket QA Sampler](workflows/ticket-qa-sampler.json) | Quality of human replies | Weekly stratified sample per engineer, scored on a 4-part rubric (empathy, accuracy, completeness, next step) with one coaching sentence each. Lead-only output that feeds 1:1s, never the channel. |
+| [CSAT Detractor Loop](workflows/csat-detractor-loop.json) | Closing the loop | Every low score gets a theme and a from-the-lead follow-up draft that names the failure plainly and says what changes. Drafts await human approval; apologies are never automated. |
+| [Linear Cycle Hygiene](workflows/linear-cycle-hygiene.json) | Engineering escalations | Midweek sweep: stale escalations sorted by ARR at stake, issues missing from any cycle, and shipped fixes whose customers have not been told yet. No AI; determinism wins here. |
+| [Volume Spike Early-Warning](workflows/volume-spike-early-warning.json) | Queue spikes | Hourly intake vs same-weekday baseline; on a spike, checks category concentration to distinguish one incident wearing twenty tickets from organic volume, and prescribes the right response for each. |
+
 ## The IT operations pack
 
 Three more workflows from the corporate IT side of the house, same honest mock-data framing:

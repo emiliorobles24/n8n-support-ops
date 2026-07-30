@@ -1,0 +1,166 @@
+{
+  "name": "Volume Spike Early-Warning",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9-17 * * 1-5"
+            }
+          ]
+        }
+      },
+      "name": "Hourly, Business Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock intake counts - swap for helpdesk API: tickets created in the last hour + 4-week same-weekday-same-hour baseline\nconst lastHour = 31;\nconst baseline = 12; // avg for this weekday+hour over 4 weeks\nconst categoriesLastHour = { 'webhook failures': 19, 'how-to': 6, 'billing': 3, 'other': 3 };\nreturn [{ json: { lastHour, baseline, ratio: +(lastHour / Math.max(baseline, 1)).toFixed(2), categoriesLastHour } }];"
+      },
+      "name": "Intake vs Baseline (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.ratio >= 1.5 }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Spike?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "jsCode": "// A spike is usually one root cause wearing many tickets. Check concentration before panicking about staffing.\nconst { lastHour, baseline, ratio, categoriesLastHour } = $input.first().json;\nconst sorted = Object.entries(categoriesLastHour).sort((a, b) => b[1] - a[1]);\nconst [topCat, topCount] = sorted[0];\nconst concentration = Math.round(100 * topCount / lastHour);\nlet read, actions;\nif (concentration >= 50) {\n  read = 'ONE ROOT CAUSE: ' + concentration + '% of the spike is \\\"' + topCat + '\\\". This is an incident wearing ' + topCount + ' tickets.';\n  actions = '1. Check status of related systems + recent deploys\\n2. Declare an incident if confirmed; one owner, one thread\\n3. Post a status note + macro reply so customers get one good answer instead of many slow ones\\n4. Link tickets to the incident for one-shot resolution';\n} else {\n  read = 'DIFFUSE SPIKE: no dominant category (' + topCat + ' at ' + concentration + '%). Likely organic volume.';\n  actions = '1. Pull one floater onto the queue for 2 hours\\n2. Watch first-response SLA burn (Sentinel will flag at-risk tickets)\\n3. Recheck next hour; two diffuse spike hours in a row = staffing conversation, not incident';\n}\nreturn [{ json: {\n  subject: 'Volume spike: ' + lastHour + ' tickets/hr vs baseline ' + baseline + ' (x' + ratio + ')',\n  body: 'Intake spike detected.\\n\\n' + read + '\\n\\nCategory breakdown: ' + sorted.map(([c, n]) => c + ' ' + n).join(', ') + '\\n\\nNext actions:\\n' + actions + '\\n\\nPrinciple: triage the cause, not just the queue.'\n} }];"
+      },
+      "name": "Root-Cause Sniff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -100
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-lead@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Spike Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        -100
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {},
+      "name": "Normal Hour (no action)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        480,
+        120
+      ],
+      "id": "node-0005"
+    }
+  ],
+  "connections": {
+    "Hourly, Business Hours": {
+      "main": [
+        [
+          {
+            "node": "Intake vs Baseline (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intake vs Baseline (mock)": {
+      "main": [
+        [
+          {
+            "node": "Spike?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Spike?": {
+      "main": [
+        [
+          {
+            "node": "Root-Cause Sniff",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normal Hour (no action)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Root-Cause Sniff": {
+      "main": [
+        [
+          {
+            "node": "Spike Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

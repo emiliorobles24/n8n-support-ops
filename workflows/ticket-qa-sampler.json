@@ -1,0 +1,161 @@
+{
+  "name": "Ticket QA Sampler (human agents)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * 5"
+            }
+          ]
+        }
+      },
+      "name": "Fridays 10 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Stratified sample: N resolved tickets per engineer per week - swap for helpdesk API random sample\nreturn [{ json: { tickets: [\n  { engineer: 'Dana', ticketId: 'T-4001', customerMsg: 'Our workflow stopped running overnight and we have a launch today, please help', reply: 'Hi! I can see the execution failed on an expired credential at 2am. I have re-authenticated the connection and re-run the workflow successfully just now. To prevent this, I also enabled the credential expiry warning. Anything else before your launch? Good luck today!' },\n  { engineer: 'Marco', ticketId: 'T-4002', customerMsg: 'How do I export my execution history?', reply: 'Settings > Executions > Export.' },\n  { engineer: 'Priya', ticketId: 'T-4003', customerMsg: 'Getting a 429 error on the HTTP node since yesterday', reply: 'That is a rate limit from the API you are calling, not from us. Add a Loop with a Wait node between batches, or check if your plan with that provider allows a higher rate. Here is our doc on handling rate limits: [link]. Want me to look at your workflow together?' }\n] } }];"
+      },
+      "name": "Stratified Sample (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.tickets) }}",
+        "options": {
+          "systemMessage": "You are a support QA reviewer scoring HUMAN agent replies. For each ticket return ONLY valid JSON {\"reviews\":[{\"engineer\",\"ticketId\",\"empathy\":1-5,\"accuracy\":1-5,\"completeness\":1-5,\"nextStep\":1-5,\"coachingNote\": one specific sentence}]}. Scoring guide: a technically correct but curt reply with no next step caps at completeness 2 and nextStep 1. Praise specifics in the coaching note when deserved; this feeds 1:1 coaching, not punishment."
+        }
+      },
+      "name": "Rubric Review",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        220
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output ?? '';\nconst match = String(raw).match(/\\{[\\s\\S]*\\}/);\nlet reviews = [];\ntry { reviews = JSON.parse(match ? match[0] : raw).reviews || []; } catch (e) { reviews = []; }\nlet body = 'Weekly ticket QA (LEAD ONLY, feeds 1:1s, never the channel):\\n';\nfor (const r of reviews) {\n  const avg = ((r.empathy + r.accuracy + r.completeness + r.nextStep) / 4).toFixed(1);\n  body += '\\n' + r.engineer + ' - ' + r.ticketId + ' - avg ' + avg + '/5 (E' + r.empathy + ' A' + r.accuracy + ' C' + r.completeness + ' N' + r.nextStep + ')\\n  ' + r.coachingNote + '\\n';\n}\nbody += '\\nCalibration rule: QA scores are coaching material. If a score surprises you, read the ticket before the 1:1, not during it.';\nreturn [{ json: { subject: 'Ticket QA: ' + reviews.length + ' reviews ready for 1:1s', body } }];"
+      },
+      "name": "Build Coaching Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-lead@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Lead-Only QA Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        0
+      ],
+      "id": "node-0005"
+    }
+  ],
+  "connections": {
+    "Fridays 10 AM": {
+      "main": [
+        [
+          {
+            "node": "Stratified Sample (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stratified Sample (mock)": {
+      "main": [
+        [
+          {
+            "node": "Rubric Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rubric Review": {
+      "main": [
+        [
+          {
+            "node": "Build Coaching Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Coaching Digest": {
+      "main": [
+        [
+          {
+            "node": "Lead-Only QA Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rubric Review",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
