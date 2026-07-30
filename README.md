@@ -32,6 +32,6 @@ Open a new workflow in n8n, copy a JSON file's contents, and paste directly onto
 
 ## Related projects
 
-[okta-as-code](https://github.com/emiliorobles24/okta-as-code) (identity state as Terraform) · [endpoints-as-code](https://github.com/emiliorobles24/endpoints-as-code) (fleet policy as Terraform with CI) · [mdm-from-scratch](https://github.com/emiliorobles24/mdm-from-scratch) (device management architecture) · [iam-from-scratch](https://github.com/emiliorobles24/iam-from-scratch) (identity architecture) · [mdm-compliance-dashboard](https://github.com/emiliorobles24/mdm-compliance-dashboard) (three MDMs reconciled into one source of truth)
+[okta-as-code](https://github.com/emiliorobles24/okta-as-code) (identity state as Terraform) · [endpoints-as-code](https://github.com/emiliorobles24/endpoints-as-code) (fleet policy as Terraform with CI) · [mdm-from-scratch](https://github.com/emiliorobles24/mdm-from-scratch) (device management architecture) · [iam-from-scratch](https://github.com/emiliorobles24/iam-from-scratch) (identity architecture) · [jira-from-scratch](https://github.com/emiliorobles24/jira-from-scratch) (company-wide service management design) · [mdm-compliance-dashboard](https://github.com/emiliorobles24/mdm-compliance-dashboard) (three MDMs reconciled into one source of truth)
 
 Built with AI coding agents in the loop and every workflow reviewed, tested, and owned by me.
