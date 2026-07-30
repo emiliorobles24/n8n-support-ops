@@ -1,0 +1,175 @@
+{
+  "name": "Fleet Health Check (daily posture sweep)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "name": "Weekdays 7 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock fleet inventory across three MDMs - swap for Jamf + Kandji/Iru + Intune APIs (the reconciliation platform pattern)\nreturn [\n  { json: { serial: 'C02XK1', user: 'dana@example.com', platform: 'macOS', mdm: 'Jamf', lastCheckinHrs: 4, osVersion: '15.6', targetOs: '15.6', fileVault: true, edrAgent: true, diskFreePct: 34 } },\n  { json: { serial: 'C02XK2', user: 'marco@example.com', platform: 'macOS', mdm: 'Kandji', lastCheckinHrs: 190, osVersion: '15.4', targetOs: '15.6', fileVault: true, edrAgent: true, diskFreePct: 22 } },\n  { json: { serial: 'WIN881', user: 'priya@example.com', platform: 'Windows', mdm: 'Intune', lastCheckinHrs: 9, osVersion: '11-24H2', targetOs: '11-24H2', fileVault: false, edrAgent: true, diskFreePct: 51 } },\n  { json: { serial: 'WIN882', user: 'sam@example.com', platform: 'Windows', mdm: 'Intune', lastCheckinHrs: 30, osVersion: '11-23H2', targetOs: '11-24H2', fileVault: true, edrAgent: false, diskFreePct: 7 } }\n];"
+      },
+      "name": "Pull Fleet Inventory (mock 3 MDMs)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Posture checks per device. Severity mirrors blast radius: encryption and EDR are non-negotiables.\nconst out = [];\nfor (const item of $input.all()) {\n  const d = item.json;\n  const fails = [];\n  if (!d.fileVault) fails.push({ check: 'disk encryption OFF', sev: 'CRITICAL', action: 'Escalate today: enable via MDM policy, verify key escrow' });\n  if (!d.edrAgent) fails.push({ check: 'EDR agent missing', sev: 'CRITICAL', action: 'Push agent install now, confirm check-in within 24h' });\n  if (d.lastCheckinHrs > 168) fails.push({ check: 'no MDM check-in 7d+', sev: 'WARNING', action: 'Ping user; if silent 48h, flag possible lost/off-network device in asset system' });\n  if (d.osVersion !== d.targetOs) fails.push({ check: 'OS behind target (' + d.osVersion + ' vs ' + d.targetOs + ')', sev: 'NOTICE', action: 'Nudge user with update window; enforce via ring policy after grace period' });\n  if (d.diskFreePct < 10) fails.push({ check: 'disk ' + d.diskFreePct + '% free', sev: 'NOTICE', action: 'Self-service cleanup nudge to user' });\n  out.push({ json: { ...d, fails, healthy: fails.length === 0 } });\n}\nreturn out;"
+      },
+      "name": "Run Posture Checks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const devices = $input.all().map(i => i.json);\nconst healthy = devices.filter(d => d.healthy).length;\nconst score = Math.round(100 * healthy / devices.length);\nconst allFails = devices.flatMap(d => d.fails.map(f => ({ ...f, serial: d.serial, user: d.user, mdm: d.mdm })));\nconst bySev = { CRITICAL: [], WARNING: [], NOTICE: [] };\nfor (const f of allFails) bySev[f.sev].push(f);\nlet body = 'Fleet health: ' + score + '% fully healthy (' + healthy + '/' + devices.length + ' devices across Jamf, Kandji, Intune)\\n';\nfor (const sev of ['CRITICAL', 'WARNING', 'NOTICE']) {\n  if (!bySev[sev].length) continue;\n  body += '\\n== ' + sev + ' (' + bySev[sev].length + ') ==\\n';\n  for (const f of bySev[sev]) body += f.serial + ' (' + f.user + ', ' + f.mdm + '): ' + f.check + '\\n  Next: ' + f.action + '\\n';\n}\nbody += '\\nPrinciple: the fleet score is a trailing indicator; the CRITICAL list is today\\'s to-do. Track the score weekly, work the list daily.';\nreturn [{ json: { subject: 'Fleet health ' + score + '%: ' + bySev.CRITICAL.length + ' critical, ' + bySev.WARNING.length + ' warning', body } }];"
+      },
+      "name": "Build Health Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        0
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "sendTo": "it-ops@example.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Health Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        720,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { eventType: 'fleet-health-sweep', actor: 'automation', target: 'device fleet', source: 'fleet-health-check', details: $input.first().json.subject } }];"
+      },
+      "name": "Shape Audit Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        180
+      ],
+      "id": "node-0005"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "REPLACE-WITH-YOUR-LEDGER-WORKFLOW-ID",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "name": "Log To Audit Ledger",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        940,
+        180
+      ],
+      "id": "node-0006"
+    }
+  ],
+  "connections": {
+    "Weekdays 7 AM": {
+      "main": [
+        [
+          {
+            "node": "Pull Fleet Inventory (mock 3 MDMs)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull Fleet Inventory (mock 3 MDMs)": {
+      "main": [
+        [
+          {
+            "node": "Run Posture Checks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Posture Checks": {
+      "main": [
+        [
+          {
+            "node": "Build Health Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Health Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Health Digest",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Shape Audit Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Shape Audit Event": {
+      "main": [
+        [
+          {
+            "node": "Log To Audit Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
