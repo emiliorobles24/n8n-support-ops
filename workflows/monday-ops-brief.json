@@ -1,0 +1,137 @@
+{
+  "name": "Monday Ops Brief (team meeting autopilot)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "name": "Mondays 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock of the Metabase pulls - swap for Metabase API / Plain export in production\nconst thisWeek = { volume: 412, volumeEU: 232, volumeUS: 180, frMedianMin: 42, resMedianHrs: 9.5, csat: 4.6, aiDeflection: 61, backlog: 37, topCategories: ['webhook retries', 'SSO/SAML setup', 'self-host upgrades'] };\nconst lastWeek = { volume: 371, frMedianMin: 55, resMedianHrs: 11.2, csat: 4.4, aiDeflection: 58, backlog: 45 };\nreturn [{ json: { thisWeek, lastWeek, week: new Date().toISOString().slice(0,10) } }];"
+      },
+      "name": "Pull Weekly Metrics (mock Metabase)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json) }}",
+        "options": {
+          "systemMessage": "You are a support engineering team lead writing your Monday morning ops brief for the weekly team meeting. Input: this week and last week queue metrics as JSON. Write a tight brief: 1) headline, one sentence, the single most important shift; 2) KPI deltas with numbers (first response, resolution, CSAT, AI deflection, backlog); 3) two wins to call out; 4) two concerns, each with a proposed action; 5) three talking points for the team meeting. Plain text, no markdown, under 250 words, direct and warm."
+        }
+      },
+      "name": "Write Monday Ops Brief",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        220
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ '[Ops Brief] Week of ' + $('Pull Weekly Metrics (mock Metabase)').first().json.week }}",
+        "emailType": "text",
+        "message": "={{ $json.output }}",
+        "options": {}
+      },
+      "name": "Send Monday Brief",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        460,
+        0
+      ],
+      "id": "node-0004"
+    }
+  ],
+  "connections": {
+    "Mondays 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Pull Weekly Metrics (mock Metabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pull Weekly Metrics (mock Metabase)": {
+      "main": [
+        [
+          {
+            "node": "Write Monday Ops Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Monday Ops Brief": {
+      "main": [
+        [
+          {
+            "node": "Send Monday Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write Monday Ops Brief",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

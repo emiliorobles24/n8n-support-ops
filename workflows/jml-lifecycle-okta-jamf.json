@@ -1,0 +1,602 @@
+{
+  "name": "JML Lifecycle (Okta + Jamf)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hr-events",
+        "options": {}
+      },
+      "name": "HR Event Intake (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -460,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "joiner",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Joiner?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const OKTA_BASE = 'https://dev-REPLACE-ME.okta.com'; // your Okta dev tenant\nconst JAMF_BASE = 'https://REPLACE-ME.jamfcloud.com'; // your Jamf instance\n// Birthright access by department - okta-as-code pattern, evaluated at event time\nconst BIRTHRIGHT = { engineering: 'Eng-Tools', sales: 'GTM-Apps', support: 'Support-Stack' };\nconst e = $input.first().json.body.employee;\nconst dept = String(e.department || '').toLowerCase();\nreturn [{ json: {\n  oktaBase: OKTA_BASE, jamfBase: JAMF_BASE, employee: e, serial: e.serial || '',\n  birthrightGroup: BIRTHRIGHT[dept] ?? 'Everyone-Base',\n  profile: { firstName: e.firstName, lastName: e.lastName, email: e.email, login: e.email, title: e.title || '', department: e.department || '' }\n} }];"
+      },
+      "name": "Joiner: Build Profile + Groups",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20,
+        -170
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.oktaBase }}/api/v1/users?activate=true",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ profile: $json.profile }) }}"
+      },
+      "name": "Create Okta User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        200,
+        -170
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Joiner: Build Profile + Groups').first().json.oktaBase }}/api/v1/groups?q={{ $('Joiner: Build Profile + Groups').first().json.birthrightGroup }}&limit=1",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "name": "Find Birthright Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        -170
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "={{ $('Joiner: Build Profile + Groups').first().json.oktaBase }}/api/v1/groups/{{ $json.id }}/users/{{ $('Create Okta User').first().json.id }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "name": "Add To Birthright Group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        -170
+      ],
+      "id": "node-0005"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Joiner: Build Profile + Groups').first().json.jamfBase }}/api/v1/auth/token",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth"
+      },
+      "name": "Jamf: Get Token (joiner)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        -170
+      ],
+      "id": "node-0006"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Joiner: Build Profile + Groups').first().json.jamfBase }}/api/v1/computers-inventory?filter=hardware.serialNumber==%22{{ $('Joiner: Build Profile + Groups').first().json.serial }}%22",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Jamf: Get Token (joiner)').first().json.token }}"
+            }
+          ]
+        }
+      },
+      "name": "Jamf: Find Device By Serial",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        -170
+      ],
+      "id": "node-0007"
+    },
+    {
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $('Joiner: Build Profile + Groups').first().json.jamfBase }}/api/v1/computers-inventory-detail/{{ $json.results[0].id }}",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Jamf: Get Token (joiner)').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ userAndLocation: { username: $('Joiner: Build Profile + Groups').first().json.employee.email, realname: $('Joiner: Build Profile + Groups').first().json.employee.firstName + ' ' + $('Joiner: Build Profile + Groups').first().json.employee.lastName, email: $('Joiner: Build Profile + Groups').first().json.employee.email, position: $('Joiner: Build Profile + Groups').first().json.employee.title } }) }}"
+      },
+      "name": "Jamf: Assign Laptop To User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        -170
+      ],
+      "id": "node-0008"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ '[JML] Provisioned: ' + $('Joiner: Build Profile + Groups').first().json.employee.firstName + ' ' + $('Joiner: Build Profile + Groups').first().json.employee.lastName }}",
+        "emailType": "text",
+        "message": "={{ 'Joiner provisioned.\\n\\nOkta: user created + ' + $('Joiner: Build Profile + Groups').first().json.birthrightGroup + ' assigned\\nJamf: laptop ' + $('Joiner: Build Profile + Groups').first().json.serial + ' assigned to ' + $('Joiner: Build Profile + Groups').first().json.employee.email + '\\n\\nIT checklist:\\n- Zero-touch enrollment verified on first boot\\n- Day-one access confirmed' }}",
+        "options": {}
+      },
+      "name": "Welcome + IT Checklist",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1520,
+        -170
+      ],
+      "id": "node-0009"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.body.event }}",
+              "rightValue": "leaver",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Leaver?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -20,
+        170
+      ],
+      "id": "node-0010"
+    },
+    {
+      "parameters": {
+        "jsCode": "const OKTA_BASE = 'https://dev-REPLACE-ME.okta.com'; // your Okta dev tenant\nconst JAMF_BASE = 'https://REPLACE-ME.jamfcloud.com'; // your Jamf instance\nconst e = $input.first().json.body.employee;\nconst lockPin = String(Math.floor(100000 + Math.random() * 900000));\nreturn [{ json: { oktaBase: OKTA_BASE, jamfBase: JAMF_BASE, email: e.email, name: (e.firstName || '') + ' ' + (e.lastName || ''), lockPin } }];"
+      },
+      "name": "Leaver: Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        120
+      ],
+      "id": "node-0011"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.oktaBase }}/api/v1/users/{{ encodeURIComponent($json.email) }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "name": "Find User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        420,
+        120
+      ],
+      "id": "node-0012"
+    },
+    {
+      "parameters": {
+        "method": "DELETE",
+        "url": "={{ $('Leaver: Prep').first().json.oktaBase }}/api/v1/users/{{ $json.id }}/sessions",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "name": "Revoke Sessions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        640,
+        120
+      ],
+      "id": "node-0013"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Leaver: Prep').first().json.oktaBase }}/api/v1/users/{{ $('Find User').first().json.id }}/lifecycle/deactivate?sendEmail=false",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
+      },
+      "name": "Deactivate User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        860,
+        120
+      ],
+      "id": "node-0014"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Leaver: Prep').first().json.jamfBase }}/api/v1/auth/token",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth"
+      },
+      "name": "Jamf: Get Token (leaver)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1080,
+        120
+      ],
+      "id": "node-0015"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Leaver: Prep').first().json.jamfBase }}/api/v1/computers-inventory?filter=userAndLocation.email==%22{{ $('Leaver: Prep').first().json.email }}%22",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Jamf: Get Token (leaver)').first().json.token }}"
+            }
+          ]
+        }
+      },
+      "name": "Jamf: Find Device By User",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        120
+      ],
+      "id": "node-0016"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Leaver: Prep').first().json.jamfBase }}/api/v2/mdm/commands",
+        "options": {},
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $('Jamf: Get Token (leaver)').first().json.token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ clientData: [{ managementId: $json.results[0].general.managementId, clientType: 'COMPUTER' }], commandData: { commandType: 'DEVICE_LOCK', pin: $('Leaver: Prep').first().json.lockPin, message: 'This device has been locked by IT. Contact it@company.com.' } }) }}"
+      },
+      "name": "Jamf: Lock Laptop (MDM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        120
+      ],
+      "id": "node-0017"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ '[OFFBOARD] Device locked + reclaim: ' + $('Leaver: Prep').first().json.name }}",
+        "emailType": "text",
+        "message": "={{ 'Leaver processed.\\n\\nOkta: sessions revoked, account deactivated\\nJamf: DEVICE_LOCK MDM command sent\\nUnlock PIN (IT only): ' + $('Leaver: Prep').first().json.lockPin + '\\n\\nIT checklist:\\n- Collect device (flag in asset system)\\n- Wipe + re-enroll before reassignment\\n- Verify no orphaned access at next reconciliation run' }}",
+        "options": {}
+      },
+      "name": "Device Reclaim Task",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1740,
+        120
+      ],
+      "id": "node-0018"
+    },
+    {
+      "parameters": {},
+      "name": "Mover Branch (your build)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        200,
+        320
+      ],
+      "id": "node-0019"
+    }
+  ],
+  "connections": {
+    "HR Event Intake (webhook)": {
+      "main": [
+        [
+          {
+            "node": "Joiner?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Joiner?": {
+      "main": [
+        [
+          {
+            "node": "Joiner: Build Profile + Groups",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leaver?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Joiner: Build Profile + Groups": {
+      "main": [
+        [
+          {
+            "node": "Create Okta User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Okta User": {
+      "main": [
+        [
+          {
+            "node": "Find Birthright Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Birthright Group": {
+      "main": [
+        [
+          {
+            "node": "Add To Birthright Group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add To Birthright Group": {
+      "main": [
+        [
+          {
+            "node": "Jamf: Get Token (joiner)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamf: Get Token (joiner)": {
+      "main": [
+        [
+          {
+            "node": "Jamf: Find Device By Serial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamf: Find Device By Serial": {
+      "main": [
+        [
+          {
+            "node": "Jamf: Assign Laptop To User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamf: Assign Laptop To User": {
+      "main": [
+        [
+          {
+            "node": "Welcome + IT Checklist",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leaver?": {
+      "main": [
+        [
+          {
+            "node": "Leaver: Prep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mover Branch (your build)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leaver: Prep": {
+      "main": [
+        [
+          {
+            "node": "Find User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find User": {
+      "main": [
+        [
+          {
+            "node": "Revoke Sessions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Revoke Sessions": {
+      "main": [
+        [
+          {
+            "node": "Deactivate User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deactivate User": {
+      "main": [
+        [
+          {
+            "node": "Jamf: Get Token (leaver)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamf: Get Token (leaver)": {
+      "main": [
+        [
+          {
+            "node": "Jamf: Find Device By User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamf: Find Device By User": {
+      "main": [
+        [
+          {
+            "node": "Jamf: Lock Laptop (MDM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamf: Lock Laptop (MDM)": {
+      "main": [
+        [
+          {
+            "node": "Device Reclaim Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

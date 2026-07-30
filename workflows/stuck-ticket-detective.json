@@ -1,0 +1,104 @@
+{
+  "name": "Stuck-Ticket Detective",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "name": "Weekdays 9 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock queue scan - swap for Plain / Zendesk / Jira search in production\nconst now = Date.now(); const hrs = h => new Date(now - h*3600e3).toISOString();\nconst tickets = [\n { id:'T-2001', subject:'Workflow crashes on large payloads', customer:'Acme', owner:'dana', lastUpdate:hrs(61), pingPong:2, linearIssue:'ENG-451', waitingOn:'engineering' },\n { id:'T-2002', subject:'Billing invoice mismatch', customer:'Globex', owner:'', lastUpdate:hrs(50), pingPong:1, linearIssue:'', waitingOn:'' },\n { id:'T-2003', subject:'How to migrate self-host to cloud', customer:'Initech', owner:'marco', lastUpdate:hrs(170), pingPong:1, linearIssue:'', waitingOn:'customer' },\n { id:'T-2004', subject:'SSO loops on Safari', customer:'Umbrella', owner:'priya', lastUpdate:hrs(12), pingPong:6, linearIssue:'', waitingOn:'' }\n];\nconst stuck = tickets.map(t => ({...t, idleHrs: Math.round((now - new Date(t.lastUpdate)) / 3600e3)}))\n .filter(t => t.idleHrs > 48 || t.pingPong >= 4)\n .map(t => {\n  let reason, action;\n  if (!t.owner) { reason = 'UNOWNED'; action = 'Assign an owner this morning'; }\n  else if (t.waitingOn === 'engineering') { reason = 'WAITING ON ENGINEERING'; action = 'Nudge ' + t.linearIssue + ' in Linear with customer impact attached'; }\n  else if (t.waitingOn === 'customer' && t.idleHrs > 168) { reason = 'CUSTOMER SILENT 7D+'; action = 'Final follow-up today, then close-pending'; }\n  else { reason = 'PING-PONG'; action = 'Break the loop: offer a live call, stop the email thread'; }\n  return { ...t, reason, action };\n });\nreturn stuck.map(s => ({ json: s }));"
+      },
+      "name": "Scan Queue For Stuck (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nif (!items.length) return [];\nconst groups = {};\nfor (const t of items) (groups[t.reason] = groups[t.reason] || []).push(t);\nlet body = 'Stuck-ticket morning sweep (' + items.length + ' need a human):\\n';\nfor (const [reason, list] of Object.entries(groups)) {\n  body += '\\n== ' + reason + ' ==\\n';\n  for (const t of list) body += t.id + ' - ' + t.customer + ' - ' + t.subject + '\\n  idle ' + t.idleHrs + 'h, owner: ' + (t.owner || 'NONE') + '\\n  Next: ' + t.action + '\\n';\n}\nbody += '\\nRule: a customer having to chase us is a failure.';\nreturn [{ json: { subject: 'Stuck tickets: ' + items.length + ' need a human today', body } }];"
+      },
+      "name": "Build Unstick Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Unstick Digest",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "node-0003"
+    }
+  ],
+  "connections": {
+    "Weekdays 9 AM": {
+      "main": [
+        [
+          {
+            "node": "Scan Queue For Stuck (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scan Queue For Stuck (mock)": {
+      "main": [
+        [
+          {
+            "node": "Build Unstick Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Unstick Digest": {
+      "main": [
+        [
+          {
+            "node": "Send Unstick Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

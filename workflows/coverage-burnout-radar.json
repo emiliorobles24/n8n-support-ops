@@ -1,0 +1,104 @@
+{
+  "name": "Coverage + Burnout Radar",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 14 * * 5"
+            }
+          ]
+        }
+      },
+      "name": "Fridays 2 PM (plan next week)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock roster - swap for BambooHR/Calendar PTO feed + Metabase volume in production\nreturn [{ json: { engineers: [\n  { name: 'Dana', region: 'EU', pto: ['Mon'], lastWeekTickets: 61 },\n  { name: 'Marco', region: 'EU', pto: [], lastWeekTickets: 48 },\n  { name: 'Lena', region: 'EU', pto: ['Thu', 'Fri'], lastWeekTickets: 44 },\n  { name: 'Priya', region: 'US', pto: [], lastWeekTickets: 96 },\n  { name: 'Sam', region: 'US', pto: ['Wed'], lastWeekTickets: 31 }\n] } }];"
+      },
+      "name": "Roster, PTO, Volume (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { engineers } = $input.first().json;\nconst days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];\nconst MIN_PER_WINDOW = 2;\nlet body = 'Next-week coverage plan (Berlin + New York windows):\\n\\n== Coverage gaps ==\\n';\nlet gaps = 0;\nfor (const day of days) {\n  for (const region of ['EU', 'US']) {\n    const avail = engineers.filter(e => e.region === region && !e.pto.includes(day));\n    if (avail.length < MIN_PER_WINDOW) {\n      gaps++;\n      const helpers = engineers.filter(e => e.region !== region && !e.pto.includes(day)).map(e => e.name);\n      body += day + ' ' + region + ' window: only ' + avail.map(e => e.name).join('+') + ' available. Ask ' + (helpers[0] || 'nobody') + ' to shift hours or set an async-first day.\\n';\n    }\n  }\n}\nif (!gaps) body += 'None. All windows have ' + MIN_PER_WINDOW + '+ engineers.\\n';\nbody += '\\n== Workload balance (burnout check) ==\\n';\nconst total = engineers.reduce((s, e) => s + e.lastWeekTickets, 0);\nfor (const e of engineers) {\n  const pct = Math.round(100 * e.lastWeekTickets / total);\n  body += e.name + ': ' + e.lastWeekTickets + ' tickets (' + pct + '%)' + (pct > 30 ? '  <-- OVER 30%: rebalance assignment rules + check in at 1:1' : '') + '\\n';\n}\nbody += '\\nPrinciple: coverage is designed, not hoped for; burnout is caught in the data before it is felt.';\nreturn [{ json: { subject: 'Next-week coverage plan: ' + gaps + ' gap(s) to solve', body } }];"
+      },
+      "name": "Detect Gaps + Burnout Risk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send Coverage Plan",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        440,
+        0
+      ],
+      "id": "node-0003"
+    }
+  ],
+  "connections": {
+    "Fridays 2 PM (plan next week)": {
+      "main": [
+        [
+          {
+            "node": "Roster, PTO, Volume (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roster, PTO, Volume (mock)": {
+      "main": [
+        [
+          {
+            "node": "Detect Gaps + Burnout Risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Gaps + Burnout Risk": {
+      "main": [
+        [
+          {
+            "node": "Send Coverage Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

@@ -1,0 +1,161 @@
+{
+  "name": "AI Agent QA Auditor (false-resolution watch)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * 1-5"
+            }
+          ]
+        }
+      },
+      "name": "Weekdays 5 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock sample of tickets the AI support agent closed today - swap for the helpdesk API filtered to agent-resolved\nreturn [{ json: { tickets: [\n { id: 'T-3001', question: 'Can I set environment variables per workflow in n8n Cloud?', aiAnswer: 'Yes. Open the workflow settings panel and add environment variables for that workflow.' },\n { id: 'T-3002', question: 'My webhook returns 404 in production but works in test', aiAnswer: 'Your workflow is not active. Publish/activate the workflow and use the production URL rather than the test URL.' },\n { id: 'T-3003', question: 'How do I rotate my API key?', aiAnswer: 'Go to Settings, then API, and delete the old key. You can create a new key there.' }\n] } }];"
+      },
+      "name": "Sample AI-Closed Tickets (mock)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.tickets) }}",
+        "options": {
+          "systemMessage": "You are a senior support engineer auditing answers an AI support agent gave to customers before closing their tickets. For each ticket in the input array, judge the answer for factual correctness about the n8n product and completeness. Return ONLY valid JSON: {\"audits\": [{\"id\", \"verdict\": \"correct\"|\"incomplete\"|\"wrong\", \"why\": one sentence, \"humanFollowUp\": one sentence or \"none\"}]}. Be skeptical: a confident wrong answer is the worst outcome in support, because the customer stops asking and stays broken."
+        }
+      },
+      "name": "Second-Opinion Audit",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        180,
+        220
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output ?? '';\nconst match = String(raw).match(/\\{[\\s\\S]*\\}/);\nlet audits = [];\ntry { audits = JSON.parse(match ? match[0] : raw).audits || []; } catch (e) { audits = []; }\nconst bad = audits.filter(a => a.verdict !== 'correct');\nconst rate = audits.length ? Math.round(100 * bad.length / audits.length) : 0;\nlet body = 'AI agent QA audit (today sample of ' + audits.length + ' agent-closed tickets):\\n\\nFalse/incomplete resolution rate: ' + rate + '%\\n\\n';\nfor (const a of audits) body += '[' + a.verdict.toUpperCase() + '] ' + a.id + '\\n  ' + a.why + '\\n  Follow-up: ' + a.humanFollowUp + '\\n\\n';\nbody += 'Why this exists: deflection only counts if the answer was right. This audit is the difference between 80% deflection and 80% deflection you can trust.';\nreturn [{ json: { subject: 'AI agent QA: ' + rate + '% flagged today', body } }];"
+      },
+      "name": "Score + Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Send QA Report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        680,
+        0
+      ],
+      "id": "node-0005"
+    }
+  ],
+  "connections": {
+    "Weekdays 5 PM": {
+      "main": [
+        [
+          {
+            "node": "Sample AI-Closed Tickets (mock)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sample AI-Closed Tickets (mock)": {
+      "main": [
+        [
+          {
+            "node": "Second-Opinion Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Second-Opinion Audit": {
+      "main": [
+        [
+          {
+            "node": "Score + Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score + Report": {
+      "main": [
+        [
+          {
+            "node": "Send QA Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Second-Opinion Audit",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

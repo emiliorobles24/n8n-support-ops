@@ -1,0 +1,194 @@
+{
+  "name": "AI Ticket Triage Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "support-intake",
+        "options": {}
+      },
+      "name": "Ticket Intake (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "systemMessage": "You are the first-line triage agent for a SaaS support queue. Read the incoming ticket JSON and return ONLY valid JSON with keys: severity (critical|high|normal|low), category (bug|how-to|billing|integration|security|other), customer (string), arr_estimate (string, unknown unless stated), business_impact (one sentence), summary (two sentences max), suggested_first_response (three sentences max, warm and specific, never invent product facts). Severity rules: production down, security exposure, or an enterprise customer fully blocked = critical; degraded but working = high; questions and how-tos = normal. Escalations must lead with customer name, ARR, business impact, and data."
+        }
+      },
+      "name": "AI Triage Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -40,
+        220
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output ?? $input.first().json.text ?? '';\nconst match = String(raw).match(/\\{[\\s\\S]*\\}/);\nlet parsed = {};\ntry { parsed = JSON.parse(match ? match[0] : raw); }\ncatch (e) { parsed = { severity: 'high', category: 'other', summary: String(raw).slice(0, 400), parse_error: true }; }\nreturn [{ json: parsed }];"
+      },
+      "name": "Parse Triage JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Critical?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        460,
+        0
+      ],
+      "id": "node-0004"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ '[CRITICAL] ' + ($json.customer || 'Unknown customer') + ' - ' + $json.category }}",
+        "emailType": "text",
+        "message": "={{ 'ESCALATION (lead with customer, ARR, impact, data):\\n\\nCustomer: ' + $json.customer + '\\nARR: ' + $json.arr_estimate + '\\nBusiness impact: ' + $json.business_impact + '\\n\\nSummary: ' + $json.summary + '\\n\\nSuggested first response:\\n' + $json.suggested_first_response }}",
+        "options": {}
+      },
+      "name": "Escalate To Human",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        700,
+        -100
+      ],
+      "id": "node-0005"
+    },
+    {
+      "parameters": {},
+      "name": "Queue Normally (swap for Sheet or Data table)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        700,
+        120
+      ],
+      "id": "node-0006"
+    }
+  ],
+  "connections": {
+    "Ticket Intake (webhook)": {
+      "main": [
+        [
+          {
+            "node": "AI Triage Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Triage Agent": {
+      "main": [
+        [
+          {
+            "node": "Parse Triage JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Triage JSON": {
+      "main": [
+        [
+          {
+            "node": "Critical?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Triage Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Critical?": {
+      "main": [
+        [
+          {
+            "node": "Escalate To Human",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Queue Normally (swap for Sheet or Data table)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

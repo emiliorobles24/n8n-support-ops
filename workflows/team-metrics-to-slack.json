@@ -1,0 +1,127 @@
+{
+  "name": "Team Metrics To Slack (praise public, coach private)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 16 * * 5"
+            }
+          ]
+        }
+      },
+      "name": "Fridays 4:30 PM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Mock per-engineer stats - swap for Metabase / Plain exports in production\nconst SLACK_WEBHOOK = 'https://hooks.slack.com/services/REPLACE-ME'; // incoming webhook for #support-metrics\nreturn [{ json: { slackWebhook: SLACK_WEBHOOK, week: new Date().toISOString().slice(0, 10), stats: [\n  { name: 'Dana', resolved: 58, frMedianMin: 38, csat: 4.7, lastWeekResolved: 51 },\n  { name: 'Marco', resolved: 49, frMedianMin: 51, csat: 4.5, lastWeekResolved: 40 },\n  { name: 'Lena', resolved: 44, frMedianMin: 45, csat: 4.8, lastWeekResolved: 46 },\n  { name: 'Priya', resolved: 71, frMedianMin: 35, csat: 4.6, lastWeekResolved: 69 },\n  { name: 'Sam', resolved: 22, frMedianMin: 88, csat: 4.1, lastWeekResolved: 35 }\n] } }];"
+      },
+      "name": "Per-Engineer Stats (mock Metabase)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "const { stats, week, slackWebhook } = $input.first().json;\nconst scored = stats.map(s => ({ ...s, score: Math.round(s.resolved * 0.4 + (100 - Math.min(s.frMedianMin, 100)) * 0.3 + s.csat * 20 * 0.3), delta: s.resolved - s.lastWeekResolved }));\nscored.sort((a, b) => b.score - a.score);\nconst top = scored[0];\nconst improved = [...scored].sort((a, b) => b.delta - a.delta)[0];\nconst fastest = [...scored].sort((a, b) => a.frMedianMin - b.frMedianMin)[0];\nconst totals = { resolved: stats.reduce((x, s) => x + s.resolved, 0), csat: (stats.reduce((x, s) => x + s.csat, 0) / stats.length).toFixed(2) };\nlet publicText = ':trophy: Support week in review (' + week + ')\\n\\n' +\n  'Team: ' + totals.resolved + ' tickets resolved, avg CSAT ' + totals.csat + '\\n\\n' +\n  ':first_place_medal: Top performer: ' + top.name + ' (' + top.resolved + ' resolved, ' + top.frMedianMin + 'm median first response, CSAT ' + top.csat + ')\\n' +\n  ':chart_with_upwards_trend: Most improved: ' + improved.name + ' (+' + improved.delta + ' vs last week)\\n' +\n  ':zap: Fastest first response: ' + fastest.name + ' (' + fastest.frMedianMin + 'm median)\\n\\n' +\n  'Full leaderboard:\\n' + scored.map((s, i) => (i + 1) + '. ' + s.name + ' - score ' + s.score).join('\\n');\nconst flags = scored.filter(s => s.csat < 4.3 || s.frMedianMin > 75 || s.delta < -8);\nlet privateText = 'Lead-only coaching notes (' + week + '):\\n\\n' + (flags.length ? flags.map(s => s.name + ': ' + [s.csat < 4.3 ? 'CSAT ' + s.csat : '', s.frMedianMin > 75 ? 'first response ' + s.frMedianMin + 'm' : '', s.delta < -8 ? 'volume down ' + s.delta : ''].filter(Boolean).join(', ') + '. Raise gently at the next 1:1; look for stuck tickets or PTO/burnout context first.').join('\\n\\n') : 'No flags this week.') + '\\n\\nPrinciple: praise in public, coach in private.';\nreturn [{ json: { slackWebhook, publicText, privateText, week } }];"
+      },
+      "name": "Leaderboard + Shoutouts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.slackWebhook }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.publicText }) }}",
+        "options": {}
+      },
+      "name": "Post To #support-metrics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        -100
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ '[Lead only] Coaching notes ' + $json.week }}",
+        "emailType": "text",
+        "message": "={{ $json.privateText }}",
+        "options": {}
+      },
+      "name": "Lead-Only Coaching Notes",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        460,
+        120
+      ],
+      "id": "node-0004"
+    }
+  ],
+  "connections": {
+    "Fridays 4:30 PM": {
+      "main": [
+        [
+          {
+            "node": "Per-Engineer Stats (mock Metabase)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Per-Engineer Stats (mock Metabase)": {
+      "main": [
+        [
+          {
+            "node": "Leaderboard + Shoutouts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leaderboard + Shoutouts": {
+      "main": [
+        [
+          {
+            "node": "Post To #support-metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Lead-Only Coaching Notes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}

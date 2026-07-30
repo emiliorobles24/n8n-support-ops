@@ -1,0 +1,128 @@
+{
+  "name": "SLA Sentinel",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "node-0000"
+    },
+    {
+      "parameters": {
+        "jsCode": "// MOCK QUEUE - swap this node for your real helpdesk node (Jira, Zendesk, or Plain via HTTP Request)\nconst now = Date.now();\nconst hrs = h => new Date(now - h * 3600 * 1000).toISOString();\nreturn [\n  { json: { id: 'T-1041', subject: 'SSO login loop after IdP cert rotation', customer: 'Acme Corp', arr: 240000, priority: 'urgent', createdAt: hrs(0.8) } },\n  { json: { id: 'T-1042', subject: 'Webhook retries failing on workflow 88', customer: 'Globex', arr: 96000, priority: 'high', createdAt: hrs(3.4) } },\n  { json: { id: 'T-1043', subject: 'How to bulk-export execution logs', customer: 'Initech', arr: 18000, priority: 'normal', createdAt: hrs(6) } },\n  { json: { id: 'T-1044', subject: 'API rate limits on paid plan unclear', customer: 'Umbrella', arr: 54000, priority: 'high', createdAt: hrs(1.1) } }\n];"
+      },
+      "name": "Fetch Open Tickets (mock queue)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "node-0001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// SLA targets by priority (hours to resolution commitment)\nconst SLA = { urgent: 1, high: 4, normal: 24 };\nconst out = [];\nfor (const item of $input.all()) {\n  const t = item.json;\n  const target = SLA[t.priority] ?? 24;\n  const elapsed = (Date.now() - new Date(t.createdAt).getTime()) / 3600000;\n  const pctUsed = Math.round((elapsed / target) * 100);\n  let level = null;\n  if (pctUsed >= 90) level = 'BREACH IMMINENT';\n  else if (pctUsed >= 75) level = 'AT RISK';\n  if (level) out.push({ json: { ...t, target, elapsedHrs: +elapsed.toFixed(1), pctUsed, level, minutesLeft: Math.max(0, Math.round((target - elapsed) * 60)) } });\n}\nreturn out;"
+      },
+      "name": "Evaluate SLA Risk",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "node-0002"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lines = $input.all().map(({ json: t }) =>\n  `${t.level === 'BREACH IMMINENT' ? '[BREACH IMMINENT]' : '[AT RISK]'} ${t.id} - ${t.customer} (ARR $${(t.arr/1000).toFixed(0)}K)\\n  ${t.subject}\\n  Priority ${t.priority} | SLA ${t.target}h | ${t.pctUsed}% used | ${t.minutesLeft} min left`);\nif (lines.length === 0) return [];\nreturn [{ json: { subject: `SLA Sentinel: ${lines.length} ticket(s) need attention`, body: `Proactive SLA check (before breach, not after):\\n\\n${lines.join('\\n\\n')}\\n\\nRule: a customer having to chase us is a failure.` } }];"
+      },
+      "name": "Format Escalation Alert",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "id": "node-0003"
+    },
+    {
+      "parameters": {
+        "sendTo": "roblesemilio24@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "name": "Email The Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        660,
+        0
+      ],
+      "id": "node-0004"
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Open Tickets (mock queue)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Open Tickets (mock queue)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate SLA Risk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate SLA Risk": {
+      "main": [
+        [
+          {
+            "node": "Format Escalation Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Escalation Alert": {
+      "main": [
+        [
+          {
+            "node": "Email The Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {}
+}
