@@ -1,6 +1,6 @@
 # n8n-support-ops
 
-Nine n8n workflows that run a support engineering operation: intake, SLAs, queue health, staffing, quality, metrics, and an audit trail. Built in n8n Cloud, exported here as importable JSON.
+Twenty-two n8n workflows that run an IT and support engineering operation: intake, SLAs, queue health, staffing, quality, metrics, identity lifecycle and access governance, fleet health, and a shared audit trail. Built in n8n Cloud, exported here as importable JSON.
 
 These are working designs with mock data at the source nodes. Every mock node is labeled with the production swap (Plain, Zendesk, Jira, Metabase, BambooHR), so each workflow goes live by replacing one node and connecting credentials. The patterns come from operations I ran in production for years: an SLA program with proactive alerting that took compliance from 75% to 95%+, ticket-category deflection, executive escalation ownership, and org-wide AI tooling deployment.
 
